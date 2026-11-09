@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>懂事王国 vs 不懂事王国 · 双主角</title>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;background:#0d1020;color:#e8ecff;
+    font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    display:flex;flex-direction:column;align-items:center;min-height:100vh;padding:16px}
+  h1{font-size:18px;font-weight:600;letter-spacing:2px;margin:4px 0 10px;
+    background:linear-gradient(90deg,#5aa9ff,#ff6a6a);-webkit-background-clip:text;
+    background-clip:text;color:transparent}
+  .game{position:relative;width:960px;max-width:100%}
+  canvas{width:100%;display:block;border-radius:14px;background:#11142a;
+    box-shadow:0 10px 40px rgba(0,0,0,.5)}
+  .bar{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:12px}
+  .bar button{cursor:pointer;border:1px solid #2c3358;background:#1a1f3a;color:#dfe6ff;
+    padding:9px 12px;border-radius:10px;font-size:13px;text-align:left;
+    line-height:1.35;transition:.15s;min-width:132px}
+  .bar button:hover{border-color:#5aa9ff;transform:translateY(-1px)}
+  .bar button:disabled{opacity:.4;cursor:not-allowed;transform:none}
+  .bar button b{display:block;font-size:14px}
+  .bar button span{opacity:.7;font-size:11px}
+  .dot{display:inline-block;width:8px;height:8px;border-radius:50%;
+    margin-right:6px;vertical-align:middle}
+  .tips{margin-top:10px;font-size:12px;color:#8b93b8;text-align:center;
+    max-width:900px;line-height:1.75}
+  .over{position:absolute;inset:0;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;background:rgba(8,10,22,.92);
+    border-radius:14px;text-align:center;padding:20px}
+  .over h2{font-size:24px;margin:0 0 6px}
+  .over p{color:#9aa3c8;font-size:13px;max-width:560px;line-height:1.8;margin:6px 0 0}
+  .pick{display:flex;gap:14px;flex-wrap:wrap;justify-content:center;margin-top:16px}
+  .card{width:262px;text-align:left;padding:16px;border-radius:14px;
+    border:1px solid #2c3358;background:#161a30;cursor:pointer;transition:.18s}
+  .card:hover{transform:translateY(-3px)}
+  .card.s:hover{border-color:#5aa9ff;box-shadow:0 10px 34px rgba(90,169,255,.25)}
+  .card.u:hover{border-color:#ff5f5f;box-shadow:0 10px 34px rgba(255,95,95,.25)}
+  .card b{display:block;font-size:17px;margin-bottom:2px}
+  .card.s b{color:#7fc4ff}
+  .card.u b{color:#ff8f8f}
+  .card em{display:block;font-style:normal;font-size:12px;color:#8b93b8;margin-bottom:10px}
+  .card span{display:block;font-size:12.5px;color:#aab3d6;line-height:1.75}
+  .card i{display:inline-block;margin-top:10px;font-style:normal;font-size:11px;
+    padding:2px 9px;border-radius:20px;background:#222a4a;color:#9aa3c8}
+  .endbtns{display:flex;gap:10px;margin-top:16px}
+  .endbtns button{padding:9px 16px;border-radius:10px;border:1px solid #2c3358;
+    background:#1a1f3a;color:#dfe6ff;cursor:pointer;font-size:13px}
+  .endbtns button:hover{border-color:#5aa9ff}
+</style>
+</head>
+<body>
+<h1>懂事王国 ⚔ 不懂事王国</h1>
+<div class="game">
+  <canvas id="cv"></canvas>
+
+  <div class="over" id="start">
+    <h2>选择你的王国</h2>
+    <p>两个王国的规则完全不同。选一个，去打另一个。</p>
+    <div class="pick">
+      <button class="card s" onclick="startGame('s')">
+        <b>懂事王国</b><em>懂王</em>
+        <span>共识稳定增长 · 身边战友越多攻击越高 · 邻近同伴缓慢回血 · 敌国残血者会投奔你</span>
+        <i>推荐新手</i>
+      </button>
+      <button class="card u" onclick="startGame('u')">
+        <b>不懂事王国</b><em>不懂王</em>
+        <span>掠夺增长更快 · 单位单体更强 · 血量越低攻击越猛 · 但会内斗，残血者还会叛逃</span>
+        <i>高难度</i>
+      </button>
+    </div>
+  </div>
+
+  <div class="over" id="over" style="display:none">
+    <h2 id="overTitle"></h2>
+    <p id="overText"></p>
+    <div class="endbtns">
+      <button onclick="restart()">再来一局</button>
+      <button onclick="backToPick()">换一个王国</button>
+    </div>
+  </div>
+</div>
+<div class="bar" id="bar"></div>
+<div class="tips" id="tips"></div>
+
+<script>
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+const W=960,H=540; cv.width=W; cv.height=H;
+const LANES=[152,278,404];
+const SPAWN_X=94, ESPAWN_X=W-94, BASE_W=64;
+
+const CNAME={s:'懂事王国', u:'不懂事王国'};
+const LORD={s:'懂王', u:'不懂王'};
+const RESNAME={s:'共识', u:'掠夺'};
+const RATE={s:4.0, u:5.5};
+const DEFECT_COLOR={cike:'#8fc0ff', jushou:'#6fa8f0', yinmo:'#9ad8cf'};
+
+const TYPES={
+  s:{
+    liti:  {name:'体谅兵',  cost:10,hp:70, atk:11,spd:44,range:36, r:15,
+            color:'#5aa9ff',skin:'#f6d3ae',build:{w:1.00,h:1.00}},
+    dunwei:{name:'互助盾卫',cost:20,hp:180,atk:7, spd:28,range:38, r:18,
+            color:'#2f6fd0',skin:'#eec49a',build:{w:1.25,h:1.06},gear:'shield'},
+    yishi: {name:'共情医师',cost:26,hp:70, atk:0, spd:34,range:50, r:14,
+            color:'#6fe3c4',skin:'#f6d3ae',build:{w:0.96,h:1.00},gear:'staff',healer:true}
+  },
+  u:{
+    cike:  {name:'独狼刺客',cost:10,hp:55, atk:19,spd:58,range:36, r:14,
+            color:'#ff5f5f',skin:'#e8bd93',build:{w:0.90,h:0.96},gear:'blade'},
+    jushou:{name:'贪食巨兽',cost:22,hp:170,atk:21,spd:24,range:40, r:20,
+            color:'#c22b2b',skin:'#d9a878',build:{w:1.40,h:1.12},gear:'helm'},
+    yinmo: {name:'阴谋家',  cost:15,hp:50, atk:10,spd:40,range:140,r:13,
+            color:'#ff9a3c',skin:'#e8bd93',build:{w:1.00,h:1.06},gear:'robe'}
+  }
+};
+
+let G=null;
+
+/* ---------- 开局 ---------- */
+function startGame(pside){
+  G={
+    time:0, pSide:pside, aSide:pside==='s'?'u':'s',
+    pRes:40, aRes:45,
+    pbase:{hp:400,max:400}, abase:{hp:400,max:400},
+    units:[], over:null,
+    innerTimer:2.2, defectTimer:6, aiTimer:1.5,
+    last:performance.now()
+  };
+  document.getElementById('start').style.display='none';
+  document.getElementById('over').style.display='none';
+  document.getElementById('tips').innerHTML = pside==='s'
+    ? '你统领<b>懂事王国</b>（左·蓝）。投入「共识」出兵——身边的同伴越多，攻击加成越高；相邻同伴还会缓慢回血。'
+    : '你统领<b>不懂事王国</b>（右·红）。投入「掠夺」出兵——血量越低攻击越猛，但部下会内斗、抢自己人，残血者更会叛逃到对面。';
+  buildBar();
+}
+function restart(){
+  if(!G) return;
+  startGame(G.pSide);
+}
+function backToPick(){
+  document.getElementById('over').style.display='none';
+  document.getElementById('start').style.display='flex';
+  G=null;
+  document.getElementById('bar').innerHTML='';
+  document.getElementById('tips').innerHTML='';
+}
+
+/* ---------- 出兵 ---------- */
+function buildBar(){
+  const bar=document.getElementById('bar'); bar.innerHTML='';
+  const table=TYPES[G.pSide];
+  for(const key of Object.keys(table)){
+    const d=table[key];
+    const b=document.createElement('button');
+    b.dataset.key=key;
+    b.innerHTML='<b><i class="dot" style="background:'+d.color+'"></i>'+d.name+'</b>'
+      +'<span>'+RESNAME[G.pSide]+' '+d.cost+' · 攻 '+d.atk+' · 血 '+d.hp+'</span>';
+    b.addEventListener('click',()=>trySpawn(key));
+    bar.appendChild(b);
+  }
+}
+function leastLane(side){
+  const c=[0,0,0];
+  for(const u of G.units) if(u.side===side&&u.hp>0) c[u.lane]++;
+  return c.indexOf(Math.min(c[0],c[1],c[2]));
+}
+function trySpawn(key){
+  if(!G||G.over) return;
+  const d=TYPES[G.pSide][key];
+  if(G.pRes<d.cost) return;
+  G.pRes-=d.cost;
+  spawn(G.pSide,key,leastLane(G.pSide));
+}
+function spawn(side,key,lane){
+  const d=TYPES[side][key];
+  G.units.push({
+    side,key,lane,
+    x: side==='s'?SPAWN_X:ESPAWN_X,
+    hp:d.hp,maxHp:d.hp,atk:d.atk,spd:d.spd,range:d.range,
+    r:d.r,color:d.color,skin:d.skin,build:d.build,gear:d.gear,
+    name:d.name,healer:!!d.healer,
+    dir: side==='s'?1:-1, defected:false,
+    atkTimer:0, flash:0
+  });
+}
+
+/* ---------- 战斗计算 ---------- */
+function synergy(u){
+  let n=0;
+  for(const a of G.units){
+    if(a===u||a.hp<=0||a.side!==u.side) continue;
+    if(!a.healer&&Math.abs(a.x-u.x)<170&&Math.abs(a.lane-u.lane)<=1) n++;
+  }
+  return Math.min(n,4)*4;
+}
+function nearestEnemy(u){
+  let best=null,bd=1e9;
+  for(const e of G.units){
+    if(e.hp<=0||e.side===u.side||e.lane!==u.lane) continue;
+    const d=Math.abs(e.x-u.x);
+    if(d<bd){bd=d;best=e;}
+  }
+  return best;
+}
+function attackUnit(u,t){
+  if(u.atkTimer>0) return;
+  u.atkTimer=0.75;
+  let dmg=u.atk+(u.side==='s'?synergy(u):0);
+  if(u.side==='u') dmg*=(1+(1-u.hp/u.maxHp)*0.9);
+  t.hp-=dmg; t.flash=0.16;
+}
+function attackBase(u){
+  if(u.atkTimer>0) return;
+  u.atkTimer=0.8;
+  const dmg=u.atk+(u.side==='s'?synergy(u):0);
+  if(u.side==='s') G._sB.hp-=dmg; else G._uB.hp-=dmg;
+}
+function healLogic(u,dt){
+  let ally=null,low=1;
+  for(const a of G.units){
+    if(a===u||a.hp<=0||a.side!==u.side) continue;
+    const rr=a.hp/a.maxHp;
+    if(rr<low&&Math.abs(a.x-u.x)<170&&Math.abs(a.lane-u.lane)<=1){low=rr;ally=a;}
+  }
+  if(ally&&low<1){ ally.hp=Math.min(ally.maxHp,ally.hp+16*dt); u.flash=0.12; }
+  u.x+=(u.side==='s'?1:-1)*u.spd*0.5*dt;
+  u.x=Math.max(40,Math.min(W-40,u.x));
+}
+
+/* ---------- 主循环逻辑 ---------- */
+function update(dt){
+  if(G.over) return;
+  G.time+=dt;
+  G._sB = G.pSide==='s' ? G.pbase : G.abase;
+  G._uB = G.pSide==='u' ? G.pbase : G.abase;
+
+  G.pRes=Math.min(999,G.pRes+RATE[G.pSide]*dt);
+  G.aRes=Math.min(999,G.aRes+RATE[G.aSide]*dt);
+
+  for(const u of G.units){
+    if(u.hp<=0) continue;
+    u.flash=Math.max(0,u.flash-dt);
+    u.atkTimer=Math.max(0,u.atkTimer-dt);
+
+    /* 体谅：邻近同伴缓慢回血（仅懂事方） */
+    if(u.side==='s'){
+      let near=false;
+      for(const a of G.units){
+        if(a!==u&&a.hp>0&&a.side==='s'
+           &&Math.abs(a.x-u.x)<120&&Math.abs(a.lane-u.lane)<=1){near=true;break;}
+      }
+      if(near) u.hp=Math.min(u.maxHp,u.hp+5*dt);
+    }
+
+    if(u.healer){ healLogic(u,dt); continue; }
+
+    const t=nearestEnemy(u);
+    if(t){
+      if(Math.abs(t.x-u.x)<=u.range) attackUnit(u,t);
+      else u.x+=(u.side==='s'?1:-1)*u.spd*dt;
+    }else{
+      const bx=u.side==='s'?(W-BASE_W-8):(BASE_W+8);
+      if(Math.abs(bx-u.x)<=46) attackBase(u);
+      else u.x+=(u.side==='s'?1:-1)*u.spd*dt;
+    }
+    u.x=Math.max(40,Math.min(W-40,u.x));
+  }
+
+  /* 同路同阵营轻量分离，避免人形叠成一团 */
+  for(let i=0;i<G.units.length;i++){
+    const a=G.units[i]; if(a.hp<=0) continue;
+    for(let j=i+1;j<G.units.length;j++){
+      const b=G.units[j]; if(b.hp<=0) continue;
+      if(a.lane!==b.lane||a.side!==b.side) continue;
+      const d=b.x-a.x, min=(a.r+b.r)*0.82;
+      if(Math.abs(d)<min&&Math.abs(d)>0.01){
+        const push=(min-Math.abs(d))*0.5*(d>0?1:-1);
+        a.x-=push; b.x+=push;
+      }
+    }
+  }
+
+  /* 内斗：不懂事方随机抽打自己人 */
+  G.innerTimer-=dt;
+  if(G.innerTimer<=0){
+    G.innerTimer=2.2;
+    for(const u of G.units){
+      if(u.side!=='u'||u.hp<=0) continue;
+      if(Math.random()<0.28){
+        const allies=G.units.filter(a=>a.side==='u'&&a!==u&&a.hp>0);
+        if(allies.length){
+          const v=allies[(Math.random()*allies.length)|0];
+          v.hp-=u.atk*0.35; v.flash=0.2;
+        }
+      }
+    }
+  }
+
+  /* 觉醒叛变：不懂事方残血者投奔懂事王国 */
+  G.defectTimer-=dt;
+  if(G.defectTimer<=0){
+    G.defectTimer=5;
+    for(const u of G.units){
+      if(u.side==='u'&&u.hp>0&&u.hp/u.maxHp<0.35&&Math.random()<0.4){
+        u.side='s';
+        u.color=DEFECT_COLOR[u.key]||'#8fc0ff';
+        u.skin='#ffdcc0';
+        u.dir=1;
+        u.defected=true;
+        u.flash=0.6;
+        u.atkTimer=0.9;      /* 刚想通，先愣一下 */
+      }
+    }
+  }
+
+  /* 阵亡结算：懂事方倒下，被对面掠夺 */
+  for(const u of G.units){
+    if(u.hp<=0&&u.side==='s'){
+      const foe = G.pSide==='u' ? 'p' : 'a';
+      if(foe==='p') G.pRes=Math.min(999,G.pRes+10);
+      else G.aRes=Math.min(999,G.aRes+10);
+    }
+  }
+  G.units=G.units.filter(u=>u.hp>0);
+
+  /* 敌方 AI */
+  G.aiTimer-=dt;
+  if(G.aiTimer<=0){ G.aiTimer=2.2; aiThink(); }
+
+  if(G.pbase.hp<=0) endGame('lose');
+  else if(G.abase.hp<=0) endGame('win');
+}
+
+function aiThink(){
+  const side=G.aSide, table=TYPES[side];
+  const keys=Object.keys(table).filter(k=>table[k].cost<=G.aRes);
+  if(!keys.length) return;
+
+  const press=[0,0,0];
+  for(const u of G.units){
+    if(u.hp<=0) continue;
+    press[u.lane]+=(u.side===side? -1 : 1);
+  }
+  let best=0;
+  for(let i=1;i<3;i++) if(press[i]>press[best]) best=i;
+  if(Math.random()<0.3) best=(Math.random()*3)|0;
+
+  let k;
+  if(G.aRes>60&&keys.length>1&&Math.random()<0.55){
+    k=keys.slice().sort((a,b)=>table[b].cost-table[a].cost)[0];
+  }else{
+    k=keys[(Math.random()*keys.length)|0];
+  }
+  G.aRes-=table[k].cost;
+  spawn(side,k,best);
+}
+
+/* ---------- 绘制 ---------- */
+function shade(hex,k){
+  const n=parseInt(hex.slice(1),16);
+  const R=Math.round(((n>>16)&255)*k),
+        Gc=Math.round(((n>>8)&255)*k),
+        B=Math.round((n&255)*k);
+  return 'rgb('+R+','+Gc+','+B+')';
+}
+function rr(x,y,w,h,r){
+  r=Math.min(r,Math.abs(w)/2,Math.abs(h)/2);
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);
+  ctx.arcTo(x+w,y,x+w,y+h,r);
+  ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r);
+  ctx.arcTo(x,y,x+w,y,r);
+  ctx.closePath();
+}
+
+function drawUnit(u){
+  const gy=LANES[u.lane], r=u.r, d=u.dir;
+  const b=u.build||{w:1,h:1};
+  const cloth=u.color, dark=shade(cloth,0.62), skin=u.skin||'#f0c9a2';
+
+  /* 落地影子 */
+  ctx.beginPath();
+  ctx.ellipse(u.x,gy+2,r*0.98*b.w,r*0.30,0,0,Math.PI*2);
+  ctx.fillStyle='rgba(0,0,0,.35)'; ctx.fill();
+
+  /* 受击 / 觉醒光环 */
+  if(u.flash>0){
+    ctx.beginPath();
+    ctx.arc(u.x,gy-r*1.65,r*1.95,0,Math.PI*2);
+    ctx.fillStyle='rgba(255,255,255,'+Math.min(0.42,u.flash*2.2)+')';
+    ctx.fill();
+  }
+
+  const hipY=gy-r*1.15*b.h;
+  const shY =gy-r*2.05*b.h;
+  const hw  =r*0.54*b.w;
+  const headR=r*0.46*Math.min(1.15,b.w);
+  const headCY=shY-headR*1.25;
+
+  /* 腿 */
+  ctx.strokeStyle=dark; ctx.lineWidth=r*0.32*b.w; ctx.lineCap='round';
+  ctx.beginPath();
+  ctx.moveTo(u.x-hw*0.46,hipY); ctx.lineTo(u.x-hw*0.50,gy-r*0.06);
+  ctx.moveTo(u.x+hw*0.46,hipY); ctx.lineTo(u.x+hw*0.50,gy-r*0.06);
+  ctx.stroke();
+
+  /* 长袍下摆（阴谋家） */
+  if(u.gear==='robe'){
+    ctx.fillStyle=shade(cloth,0.84);
+    ctx.beginPath();
+    ctx.moveTo(u.x-hw*0.95,hipY-r*0.30);
+    ctx.lineTo(u.x+hw*0.95,hipY-r*0.30);
+    ctx.lineTo(u.x+hw*1.30,gy-r*0.08);
+    ctx.lineTo(u.x-hw*1.30,gy-r*0.08);
+    ctx.closePath(); ctx.fill();
+  }
+
+  /* 后侧手臂 */
+  ctx.strokeStyle=dark; ctx.lineWidth=r*0.24*b.w;
+  ctx.beginPath();
+  ctx.moveTo(u.x-d*hw*0.72,shY+r*0.26);
+  ctx.lineTo(u.x-d*hw*1.30,shY+r*0.98);
+  ctx.stroke();
+
+  /* 躯干 */
+  ctx.fillStyle=cloth;
+  rr(u.x-hw,shY,hw*2,(hipY-shY)+r*0.18,r*0.30); ctx.fill();
+
+  /* 前侧手臂 */
+  ctx.strokeStyle=cloth; ctx.lineWidth=r*0.24*b.w;
+  ctx.beginPath();
+  ctx.moveTo(u.x+d*hw*0.72,shY+r*0.26);
+  ctx.lineTo(u.x+d*hw*1.32,shY+r*0.94);
+  ctx.stroke();
+
+  /* 装备 */
+  if(u.gear==='shield'){
+    const sx=u.x+d*hw*1.62, sy=shY+r*0.80;
+    ctx.fillStyle='#9fc0ee'; ctx.strokeStyle='#5a86c4'; ctx.lineWidth=1.6;
+    rr(sx-r*0.42,sy-r*0.70,r*0.84,r*1.45,r*0.30);
+    ctx.fill(); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(sx,sy-r*0.45); ctx.lineTo(sx,sy+r*0.45);
+    ctx.strokeStyle='rgba(90,134,196,.7)'; ctx.lineWidth=1.2; ctx.stroke();
+  }
+  if(u.gear==='blade'){
+    const hx=u.x+d*hw*1.32, hy=shY+r*0.94;
+    ctx.strokeStyle='#e8eefc'; ctx.lineWidth=r*0.14;
+    ctx.beginPath(); ctx.moveTo(hx,hy); ctx.lineTo(hx+d*r*0.95,hy-r*0.55); ctx.stroke();
+  }
+  if(u.gear==='staff'){
+    const hx=u.x+d*hw*1.32, hy=shY+r*0.94;
+    ctx.strokeStyle='#d9fff4'; ctx.lineWidth=r*0.12;
+    ctx.beginPath(); ctx.moveTo(hx,hy+r*0.55); ctx.lineTo(hx,hy-r*1.15); ctx.stroke();
+    ctx.fillStyle='rgba(160,255,225,.95)';
+    ctx.beginPath(); ctx.arc(hx,hy-r*1.30,r*0.22,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='rgba(160,255,225,.25)';
+    ctx.beginPath(); ctx.arc(hx,hy-r*1.30,r*0.42,0,Math.PI*2); ctx.fill();
+  }
+
+  /* 头 */
+  ctx.fillStyle=skin;
+  ctx.beginPath(); ctx.arc(u.x,headCY,headR,0,Math.PI*2); ctx.fill();
+  ctx.strokeStyle='rgba(10,12,24,.32)'; ctx.lineWidth=1.2; ctx.stroke();
+
+  /* 头盔（贪食巨兽） */
+  if(u.gear==='helm'){
+    ctx.fillStyle='#8f1f1f';
+    ctx.beginPath();
+    ctx.arc(u.x,headCY-headR*0.16,headR*1.02,Math.PI*1.04,Math.PI*1.96);
+    ctx.fill();
+  }
+
+  /* 眼睛 */
+  ctx.fillStyle='#141a2e';
+  ctx.beginPath();
+  ctx.arc(u.x+d*headR*0.32,headCY-headR*0.06,headR*0.145,0,Math.PI*2);
+  ctx.fill();
+
+  /* 表情：懂事者微笑，不懂事者撇嘴 */
+  ctx.strokeStyle='rgba(20,26,46,.72)'; ctx.lineWidth=1.25;
+  ctx.beginPath();
+  if(u.side==='s') ctx.arc(u.x,headCY+headR*0.16,headR*0.42,Math.PI*0.16,Math.PI*0.84);
+  else ctx.arc(u.x,headCY+headR*0.62,headR*0.42,Math.PI*1.16,Math.PI*1.84);
+  ctx.stroke();
+
+  /* 觉醒标记 */
+  if(u.defected){
+    ctx.fillStyle='rgba(140,255,220,.9)';
+    ctx.beginPath();
+    ctx.arc(u.x,gy-r*3.85,r*0.18,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='rgba(140,255,220,.22)';
+    ctx.beginPath();
+    ctx.arc(u.x,gy-r*3.85,r*0.40,0,Math.PI*2); ctx.fill();
+  }
+
+  /* 血条 */
+  const bw=Math.max(r*2.3,26), bh=4;
+  const by=gy-r*3.42-b.h*r*0.15;
+  ctx.fillStyle='rgba(0,0,0,.55)';
+  ctx.fillRect(u.x-bw/2,by,bw,bh);
+  ctx.fillStyle=u.side==='s'?'#7fe0a0':'#ff8f8f';
+  ctx.fillRect(u.x-bw/2,by,bw*Math.max(0,u.hp/u.maxHp),bh);
+}
+
+function drawBase(cx,side,isPlayer){
+  const top=74, bot=488, w=BASE_W;
+  const hp=side==='s'?G._sB:G._uB;
+  const col=side==='s'?'#3f7fe0':'#d04040';
+
+  ctx.fillStyle=side==='s'?'rgba(60,120,255,.16)':'rgba(255,80,80,.16)';
+  rr(cx-w/2,top,w,bot-top,14); ctx.fill();
+  ctx.strokeStyle=col; ctx.lineWidth=2;
+  rr(cx-w/2,top,w,bot-top,14); ctx.stroke();
+
+  ctx.textAlign='center';
+  ctx.fillStyle='#e6ecff'; ctx.font='bold 17px sans-serif';
+  ctx.fillText(LORD[side],cx,H/2-10);
+  ctx.font='11px sans-serif'; ctx.fillStyle='#9aa3c8';
+  ctx.fillText(CNAME[side],cx,H/2+8);
+
+  /* 血条 */
+  const bw=w-10,bh=9,bx=cx-bw/2,by=bot+8;
+  ctx.fillStyle='rgba(255,255,255,.12)'; rr(bx,by,bw,bh,4); ctx.fill();
+  ctx.fillStyle=side==='s'?'#5aa9ff':'#ff5f5f';
+  rr(bx,by,Math.max(0.001,bw*Math.max(0,hp.hp/hp.max)),bh,4); ctx.fill();
+
+  /* “你”的标记 */
+  if(isPlayer){
+    const py=top-16+Math.sin(Date.now()/260)*4;
+    ctx.fillStyle='#ffd45e';
+    ctx.beginPath();
+    ctx.moveTo(cx,py+9); ctx.lineTo(cx-7,py-3); ctx.lineTo(cx+7,py-3);
+    ctx.closePath(); ctx.fill();
+    ctx.font='bold 11px sans-serif';
+    ctx.fillText('你',cx,py-8);
+  }
+}
+
+function draw(){
+  ctx.clearRect(0,0,W,H);
+  ctx.fillStyle='#0f1327'; ctx.fillRect(0,0,W,H);
+
+  const lg=ctx.createLinearGradient(0,0,W,0);
+  lg.addColorStop(0,'rgba(60,120,255,.16)');
+  lg.addColorStop(.5,'rgba(15,19,39,0)');
+  lg.addColorStop(1,'rgba(255,70,70,.16)');
+  ctx.fillStyle=lg; ctx.fillRect(0,0,W,H);
+
+  /* 协同连线：懂事方相邻同伴之间的青色细线 */
+  ctx.lineWidth=1;
+  for(let i=0;i<G.units.length;i++){
+    const a=G.units[i];
+    if(a.hp<=0||a.side!=='s'||a.healer||a.defected) continue;
+    for(let j=i+1;j<G.units.length;j++){
+      const b=G.units[j];
+      if(b.hp<=0||b.side!=='s') continue;
+      if(Math.abs(a.lane-b.lane)<=1&&Math.abs(a.x-b.x)<170){
+        ctx.strokeStyle='rgba(110,220,255,.14)';
+        ctx.beginPath();
+        ctx.moveTo(a.x,LANES[a.lane]-a.r*1.6);
+        ctx.lineTo(b.x,LANES[b.lane]-b.r*1.6);
+        ctx.stroke();
+      }
+    }
+  }
+
+  /* 车道参考线 */
+  ctx.strokeStyle='rgba(255,255,255,.05)'; ctx.lineWidth=1;
+  for(const y of LANES){
+    ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke();
+  }
+
+  G._sB = G.pSide==='s' ? G.pbase : G.abase;
+  G._uB = G.pSide==='u' ? G.pbase : G.abase;
+
+  drawBase(BASE_W/2+14,'s',G.pSide==='s');
+  drawBase(W-BASE_W/2-14,'u',G.pSide==='u');
+
+  for(const u of G.units) drawUnit(u);
+
+  /* 顶部信息 */
+  ctx.textAlign='left'; ctx.font='bold 15px sans-serif';
+  ctx.fillStyle=G.pSide==='s'?'#7fc4ff':'#ff8f8f';
+  ctx.fillText('你 · '+CNAME[G.pSide]+' · '+RESNAME[G.pSide]+' '+Math.floor(G.pRes),20,30);
+
+  ctx.textAlign='right';
+  ctx.fillStyle=G.aSide==='s'?'#7fc4ff':'#ff8f8f';
+  ctx.fillText(CNAME[G.aSide]+' · '+RESNAME[G.aSide]+' '+Math.floor(G.aRes),W-20,30);
+
+  ctx.textAlign='center'; ctx.font='12px sans-serif'; ctx.fillStyle='#8b93b8';
+  ctx.fillText('时间 '+G.time.toFixed(1)+'s',W/2,30);
+}
+
+function drawIdle(){
+  ctx.clearRect(0,0,W,H);
+  ctx.fillStyle='#0f1327'; ctx.fillRect(0,0,W,H);
+  const lg=ctx.createLinearGradient(0,0,W,0);
+  lg.addColorStop(0,'rgba(60,120,255,.20)');
+  lg.addColorStop(.5,'rgba(15,19,39,0)');
+  lg.addColorStop(1,'rgba(255,70,70,.20)');
+  ctx.fillStyle=lg; ctx.fillRect(0,0,W,H);
+}
+
+/* ---------- 结算 ---------- */
+function endGame(kind){
+  if(G.over) return;
+  G.over=kind;
+  const winner = G.pbase.hp<=0 ? G.aSide : G.pSide;
+  const o=document.getElementById('over');
+  const t=document.getElementById('overTitle'), p=document.getElementById('overText');
+  t.textContent=CNAME[winner]+' · 胜';
+  t.style.color = winner==='s' ? '#7fc4ff' : '#ff8f8f';
+  if(winner==='s'){
+    p.textContent='体谅与协作滚成了雪球。只会互相撕咬的那台机器，最后是从内部散架的。';
+  }else{
+    p.textContent='你的每一拳都比对面重。它们的确体谅彼此——但体谅挡不住一顿乱拳。';
+  }
+  o.style.display='flex';
+}
+
+/* ---------- 帧循环 ---------- */
+function updateButtons(){
+  document.querySelectorAll('#bar button').forEach(b=>{
+    const d=TYPES[G.pSide][b.dataset.key];
+    b.disabled=!!G.over||G.pRes<d.cost;
+  });
+}
+function loop(now){
+  if(!G){ drawIdle(); requestAnimationFrame(loop); return; }
+  const dt=Math.max(0,Math.min(0.05,(now-G.last)/1000));
+  G.last=now;
+  update(dt); updateButtons(); draw();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
